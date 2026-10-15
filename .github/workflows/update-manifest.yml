@@ -1,0 +1,49 @@
+name: Update Manifest
+
+on:
+  workflow_dispatch:
+    inputs:
+      manifest:
+        description: 'Manifest name (without .json)'
+        required: true
+        type: string
+      version:
+        description: 'Version (without v prefix)'
+        required: true
+        type: string
+      hash:
+        description: 'SHA256 hash for Windows zip'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update manifest
+        run: |
+          MANIFEST="${{ inputs.manifest }}.json"
+          VERSION="${{ inputs.version }}"
+          HASH="${{ inputs.hash }}"
+          
+          # Update version
+          jq --arg v "$VERSION" '.version = $v' "$MANIFEST" > tmp.json && mv tmp.json "$MANIFEST"
+          
+          # Update hash
+          jq --arg h "$HASH" '.architecture."64bit".hash = $h' "$MANIFEST" > tmp.json && mv tmp.json "$MANIFEST"
+          
+          # Update URL (replace version in URL - handles both cli/vX.X.X and vX.X.X formats)
+          jq --arg v "$VERSION" '.architecture."64bit".url = (.architecture."64bit".url | gsub("cli/v[0-9.]+"; "cli/v\($v)") | gsub("/v[0-9.]+/"; "/v\($v)/"))' "$MANIFEST" > tmp.json && mv tmp.json "$MANIFEST"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git diff --staged --quiet || git commit -m "Update ${{ inputs.manifest }} to v${{ inputs.version }}"
+          git push
